@@ -7,8 +7,8 @@ use Phalcon\DiInterface;
 use Phalcon\Mvc\Dispatcher;
 use Phalcon\Mvc\ModuleDefinitionInterface;
 use Phalcon\Mvc\View;
-use Phalcon\Mvc\View\Simple as SimpleView;
 use Phalcon\Events\Manager as EventsManager;
+use Phalcon\Mvc\Url;
 use Phalcon\Db\Adapter\Pdo\Postgresql;
 use App\Components\Redis;
 
@@ -28,7 +28,6 @@ class Module implements ModuleDefinitionInterface
                 "App\\Components"      => APP_PATH."components/",
                 "App\\Admin\\Controllers" => APP_PATH."modules/admin/controllers/",
                 "App\\Admin\\Models"      => APP_PATH."modules/admin/models/",
-                //"App\\Admin\\Views"      => "./modules/admin/views/",
             ]
         );
 
@@ -43,14 +42,24 @@ class Module implements ModuleDefinitionInterface
     public function registerServices(DiInterface $di)
     {
         $config = $di->get('config');
+
+        $di->set(
+            'url',
+            function () {
+                $url = new Url();
+                $url->setBaseUri('/');
+
+                return $url;
+            }
+        );
+
         $di->set('redis', function () use ($config){
-            $conf = $config->redis;
-            return new Redis($conf->host, $conf->port, $conf->auth, $conf->type, $conf->timeout, $conf->is_pconnect);
+            $conf = $config['redis'];
+            return new Redis($conf['host'], $conf['port'], $conf['auth'], $conf['type'], $conf['timeout'], $conf['is_pconnect']);
         });
 
         $di->set('mongo', function () use ($config) {
-            $options = [];
-            $mongo = new \MongoClient($config->mongodb->host, $options);
+            $mongo = new \MongoClient($config['mongodb']['host'], $config['mongodb']['options']);
             return $mongo;
         });
 
@@ -59,7 +68,6 @@ class Module implements ModuleDefinitionInterface
             $view->setViewsDir(APP_PATH.'modules/admin/views/');
             return $view;
         });
-
 
         // Registering a dispatcher
         $di->set(

@@ -4,6 +4,11 @@ namespace App\Admin\Controllers;
 
 use Phalcon\Mvc\Controller;
 use App\Components\Func;
+use Lcobucci\JWT\ValidationData;
+use Lcobucci\JWT\Parser;
+use Lcobucci\JWT\Signer\Hmac\Sha256;
+use Phalcon\Mvc\Url;
+
 
 class BaseController extends Controller
 {
@@ -11,16 +16,28 @@ class BaseController extends Controller
     public $uid = 0;
     public $username = null;
     public $role = 0;
+    public $without_login_uri = [
+        '/user/login',
+        '/user/lock',
+        '/user/logout'
+    ];
 
     public function onConstruct()
     {
+        $config = $this->di->get('config');
+
+        //登录状态验证
+        $auth_stat = self::userAuth();
+        if(!$auth_stat && !in_array($this->request->getURI(),$this->without_login_uri))
+            $this->response->redirect('user/login');
+
         //频率验证
-        if ($this->di->get('config')->req_fre_enable === 'on') {
+        if (!empty($config['req_fre_enable'])) {
             $redis = $this->di->get('redis');
             //频率限制
             $req_count = $redis->get('api_monit:req_count_'.$this->uid);
 
-            $req_allow_count = $this->di->get('config')->req_fre_count;
+            $req_allow_count = $config['req_fre_count'];
             if($req_count >= $req_allow_count){
                 return self::output(10506, '访问频率过高', [], 400);
             }else{
@@ -31,8 +48,46 @@ class BaseController extends Controller
             }
         }
 
-        $this->view->site_url = $this->di->get('config')->site_url;
-        $this->view->statics_url = $this->di->get('config')->statics_url;
+        $this->view->site_url = $config['site_url'];
+        $this->view->statics_url = $config['statics_url'];
+    }
+
+    /**
+     * 用户登录验证
+     * @return bool
+     */
+    protected function userAuth()
+    {
+        $tk = $this->request->get('tk');
+        if(empty($tk))
+            return false;
+
+        //token解码
+        $token = (new Parser())->parse((string) $tk);
+
+        //签名验证
+        $signer = new Sha256();
+        //var_dump($token->verify($signer, $this->di->get('config')->sign_key));
+        if(!$token->verify($signer, $this->di->get('config')->sign_key))
+            return false;
+
+        //nbf 验证
+        $not_before = $token->getClaim('nbf');
+        if(time() < $not_before)
+            return false;
+
+        //exp TOKEN过期验证
+        $expiration = $token->getClaim('exp');
+        //var_dump($expiration);
+        if(time() > $expiration)
+            return false;
+
+        if(!$token->getClaim('uid'))
+            return false;
+
+        $this->uid = $token->getClaim('uid');
+        $this->username = $token->getClaim('username');
+        $this->role = $token->getClaim('role');
     }
 
 
@@ -46,7 +101,8 @@ class BaseController extends Controller
     protected function output($errorCode = 200, $message = '', $data = [], $httpStatusCode = 200)
     {
         $return_data = Func::returnJson($errorCode, $message, $data);
-        if ($this->di->get('config')->app_log == 'on') {
+        $config = $this->di->get('config');
+        if (!empty($config['log_enable'])) {
             self::accessLog($httpStatusCode, $return_data);
         }
         return self::response($httpStatusCode, $return_data);
@@ -60,11 +116,14 @@ class BaseController extends Controller
     private function accessLog($httpStatusCode, $content)
     {
         $client_data = $this->request->get();
-        $log_msg = 'Request: ' . number_format(microtime(TRUE) - TIMESTAMP, 4);
+        $log_msg = '[request]';
         $log_msg .= ' ' . $this->request->getClientAddress();
-        $log_msg .= ' ' . @$client_data['_url'];
+        $log_msg .= ' ' . @$_SERVER['REQUEST_METHOD'];
+        $log_msg .= ' ' . $this->request->getURI();
+        $log_msg .= ' ' . $httpStatusCode;
+        $log_msg .= ' ' . number_format(microtime(TRUE) - TIMESTAMP, 4);
         unset($client_data['_url']);
-        $log_msg .= ' ' . json_encode($client_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $log_msg .= ' ' . http_build_query($client_data);
         $log_msg .= ' ' . $content;
 
         if ($httpStatusCode == 200) {
@@ -83,17 +142,13 @@ class BaseController extends Controller
      */
     private function response($httpStatusCode, $content)
     {
-        if (PRO_ENV !== 'production') {
-            $this->response->setStatusCode($httpStatusCode)
-                ->setHeader("Content-Type", "application/json;charset=UTF-8")
-                ->setContent($content)
-                ->send();
-        } else {
-            $this->response->setStatusCode($httpStatusCode)
-                ->setHeader("Content-Type", "application/json;charset=UTF-8")
-                ->setContent($content)
-                ->send();
-        }
+        $config = $this->di->get('config');
+
+        $this->response->setStatusCode($httpStatusCode)
+            ->setHeader("Content-Type", $config['content_type'].";charset=".$config['charset'])
+            ->setContent($content)
+            ->send();
+
         exit(1);
 
     }

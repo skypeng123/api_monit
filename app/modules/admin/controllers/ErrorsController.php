@@ -6,11 +6,27 @@ class ErrorsController extends BaseController
 {
     public function show404Action($message = '')
     {
-        return self::output2(404, $message,'',404);
+        if($this->request->isAjax())
+            return self::output(404, $message,'',404);
+        else{
+            header('HTTP/1.1 404 not found.', TRUE, 500);
+            echo $message;
+            exit(1);
+        }
+
+
+
     }
 
     public function show500Action($message = '')
     {
-        return self::output2(500, 'Server error.','',500);
+        if($this->request->isAjax())
+            return self::output(500, $message,'',500);
+        else{
+            header('HTTP/1.1 500 bad request.', TRUE, 500);
+            echo $message;
+            exit(1);
+        }
+
     }
 }

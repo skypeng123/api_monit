@@ -12,23 +12,6 @@ use Phalcon\Config\Adapter\Ini as LoadIni;
 class Func
 {
 
-    public static function getConfig($name = '', $field = '')
-    {
-        static $config;
-        if(empty($config)){
-            $config = new LoadIni(APP_PATH.'configs/'.PRO_ENV.'/config.ini');
-            $config = (array)$config;
-        }
-
-        if($name && $field)
-            return isset($config[$name]) && isset($config[$name][$field]) ? $config[$name][$field] : '';
-        elseif($name)
-            return isset($config[$name]) ? $config[$name] : '';
-        else
-            return $config;
-    }
-
-
     /**
      * 返回JSON数据
      * @param int $code
@@ -36,15 +19,15 @@ class Func
      * @param array $data
      * @return string
      */
-    public static function returnJson($code = 200, $msg = '', $data = array())
+    public static function returnJson($code = 200, $msg = '', $data = [])
     {
         if ($code == 200) {
-            $return_data = $data;
+            $return_data = $data ? $data : '';
         } else {
             $return_data = array("code" => $code, "message" => $msg);
             !empty($data) && $return_data['data'] = $data;
         }
-        return json_encode($return_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return $return_data ? json_encode($return_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : '';
     }
 
     /**
@@ -56,13 +39,6 @@ class Func
     {
         static $logger;
 
-        $config = new LoadIni('configs/'.PRO_ENV.'/config.ini');
-        if($config->app_log != 'on')
-            return ;
-
-        if($config->log_level!= 'all' && !in_array($level,explode('|',$config->log_level)))
-            return ;
-
         if(empty($logger)){
             $logger = new Syslog("API_MONIT",
                 [
@@ -71,7 +47,7 @@ class Func
                 ]
             );
         }
-        return $logger->$level('['.$level.'] --> '.$message);
+        return $logger->$level('['.$level.'] '.$message);
     }
 
     /**
