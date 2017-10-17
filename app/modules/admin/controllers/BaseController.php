@@ -19,17 +19,22 @@ class BaseController extends Controller
     public $without_login_uri = [
         '/user/login',
         '/user/lock',
+        '/user/do_login',
         '/user/logout'
     ];
 
     public function onConstruct()
     {
+        //session_start();
         $config = $this->di->get('config');
 
         //登录状态验证
-        $auth_stat = self::userAuth();
-        if(!$auth_stat && !in_array($this->request->getURI(),$this->without_login_uri))
-            $this->response->redirect('user/login');
+        if(!in_array($this->request->getURI(),$this->without_login_uri)){
+            $auth_stat = self::userAuth();
+            var_dump($auth_stat);exit;
+            if(!$auth_stat)
+                $this->response->redirect('user/login');
+        }
 
         //频率验证
         if (!empty($config['req_fre_enable'])) {
@@ -58,9 +63,13 @@ class BaseController extends Controller
      */
     protected function userAuth()
     {
-        $tk = $this->request->get('tk');
-        if(empty($tk))
+
+        var_dump($_COOKIE['api_monit_tk']);exit;
+        if(empty($_COOKIE['api_monit_tk']))
             return false;
+
+        $tk = $_COOKIE['api_monit_tk'];
+
 
         //token解码
         $token = (new Parser())->parse((string) $tk);

@@ -5,6 +5,7 @@ namespace App\Admin\Controllers;
 use Lcobucci\JWT\Builder;
 use Lcobucci\JWT\Signer\Hmac\Sha256;
 use Lcobucci\JWT\Parser;
+use App\Admin\Models\User;
 
 class UserController extends BaseController
 {
@@ -30,41 +31,31 @@ class UserController extends BaseController
      */
     public function doLoginAction()
     {
-        $username = $this->request->getPost('username','trim');
-        $password = $this->request->getPost('password','trim');
+        $username = $this->request->getPost('username', 'trim');
+        $password = $this->request->getPost('password', 'trim');
 
-//        if(!$username)
-//            self::output(40010,'用户名不能为空.',null,400);
-//
-//        if(!$password)
-//            self::output(40011,'密码不能为空.',null,400);
+        if(!$username)
+            self::output(40010,'用户名不能为空.',null,400);
 
-        $user_info = [
-            'uid'=>1,
-            'username'=>'test',
-            'role'=>1,
-        ];
+        if(!$password)
+            self::output(40011,'密码不能为空.',null,400);
 
-        $config = $this->di->get('config');
-        $sign_key = $config['sign_key'];
-        $signer = new Sha256();
-        $token = (new Builder())->setIssuer($config['site_url'])
-        //->setAudience('')
-        ->setId(uniqid(), true)
-        ->setIssuedAt(time())
-        ->setNotBefore(time())
-        ->setExpiration(time() + 5)
-        ->set('uid', $user_info['uid'])
-        ->set('username', $user_info['username'])
-        ->set('role', $user_info['role'])
-        ->sign($signer, $sign_key)
-        ->getToken();
+        $User = new User();
 
-        var_dump($token);
+        $user_info = $User->getInfoByUserName($username);
+        if (empty($user_info))
+            self::output(40012, '用户不存在.', null, 400);
+
+        if ($user_info['password'] != md5($password . $user_info['salt']))
+            self::output(40013, '帐号密码错误.', null, 400);
+
 
         $data['username'] = $user_info['username'];
-        $data['tk'] = $token->getString();
-        return self::output(200,'success',$data);
+        $token = $User->generateToken($user_info);
+
+        setcookie('api_monit_tk',$token,time()+86400,'/','.');
+
+        return self::output(200, 'successed', $data);
     }
 
     public function testAction()
