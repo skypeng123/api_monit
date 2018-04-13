@@ -7,7 +7,6 @@
 namespace App\Components;
 
 use Phalcon\Logger\Adapter\Syslog;
-use Phalcon\Config\Adapter\Ini as LoadIni;
 
 class Func
 {
@@ -50,6 +49,20 @@ class Func
         return $logger->$level('['.$level.'] '.$message);
     }
 
+
+
+    /**
+     * 记录异常
+     * @param $e
+     * @param string $append
+     */
+    public static function logException($e,$append = '')
+    {
+        $content = json_encode(['code'=>$e->getCode(),'message'=>$e->getMessage(),'file'=>$e->getFile(),'line'=>$e->getLine(),'remark'=>$append], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return self::log('Exception: '.$content,'error');
+    }
+
     /**
      * 重新组装二维数组
      * @param array $arr
@@ -84,17 +97,6 @@ class Func
 
 
 
-    /**
-     * 记录异常
-     * @param $e
-     * @param string $append
-     */
-    public static function logException($e,$append = '')
-    {
-        $message = 'Exception: '.$append.' ' . $e->getCode(). ' ' .$e->getMessage().' '.$e->getFile().' '.$e->getLine();
-
-        return self::log($message,'error');
-    }
 
     /**
      * 二维数组排序
@@ -127,6 +129,14 @@ class Func
             $new_array[$key] = $arr[$val];
         }
         return $new_array;
+    }
+
+
+    public static function writeObject($file,$data)
+    {
+        $content = var_export($data, true);
+        file_put_contents($file,$content);
+
     }
 
 }

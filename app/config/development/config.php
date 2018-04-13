@@ -40,23 +40,29 @@ return [
     'req_fre_interval'=>1,
 
     //访问频率时间段内限制次数
-    'req_fre_count'=>5,
+    'req_fre_count'=>10,
 
     //性能分析开关
     'xhprof_enable'=> 1,
-
-    //xhprof ui
-    'xhprof_host'=>'http://10.0.2.152/xhprof/xhprof_html',
 
     //性能分析日志机率 1=100%
     'xhprof_rate' => 1,
 
     'sign_key' => '1f2i3s59loa4idab42dse',
 
+    //postgresql
+    'db' => [
+        'host' => '10.0.2.152',
+        'port'=>5432,
+        'user'=>'postgres',
+        'password'=>'postgres',
+        'database'=>'api_monit',
+    ],
+
     //Redis信息
     'redis' => [
         'type' => 'tcp',
-        'host'=>'redis.slb.doordu.com',
+        'host'=>'10.0.0.71',
         'port'=>6379,
         'auth'=>'Doordu2015!!',
         'is_pconnect'=>0,
@@ -74,5 +80,13 @@ return [
     'beanstalkd' => [
         'host' => '127.0.0.1',
         'port' => 11300
+    ],
+
+    //不需要登录认证的页面
+    'without_login_uri'=>[
+        '/login',
+        '/lock',
+        '/login/submit',
+        '/lock/submit'
     ]
 ];

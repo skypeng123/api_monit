@@ -11,6 +11,9 @@ use Phalcon\Events\Manager as EventsManager;
 use Phalcon\Mvc\Url;
 use Phalcon\Db\Adapter\Pdo\Postgresql;
 use App\Components\Redis;
+use App\Components\Mongodb;
+use Phalcon\Crypt;
+use App\Plugins\Security as SecurityPlugin;
 
 class Module implements ModuleDefinitionInterface
 {
@@ -25,9 +28,10 @@ class Module implements ModuleDefinitionInterface
 
         $loader->registerNamespaces(
             [
-                "App\\Components"      => APP_PATH."components/",
-                "App\\Admin\\Controllers" => APP_PATH."modules/admin/controllers/",
-                "App\\Admin\\Models"      => APP_PATH."modules/admin/models/",
+                "App\\Components"      => APP_PATH."/components/",
+                "App\\Plugins"      => APP_PATH."/plugins/",
+                "App\\Models"      => APP_PATH."/models/",
+                "App\\Admin\\Controllers" => APP_PATH."/modules/admin/controllers/",
             ]
         );
 
@@ -53,27 +57,78 @@ class Module implements ModuleDefinitionInterface
             }
         );
 
+
+        $conn_master = NULL;
+        /**
+         * 主库连接
+         * 避免每次获取pgsql对象时连接数据库，用引用传值+为空判断
+         */
+        $di->set('db', function () use ($config,$di,&$conn_master) {
+
+            if(empty($conn_master)){
+                $conn_master = new \Phalcon\Db\Adapter\Pdo\Postgresql(
+                    [
+                        'host' => $config->db->host,
+                        'port' => $config->db->port,
+                        'username' => $config->db->user,
+                        'password' => $config->db->password,
+                        'dbname' => $config->db->database,
+                    ]
+                );
+            }
+            return $conn_master;
+        });
+
         $di->set('redis', function () use ($config){
             $conf = $config['redis'];
             return new Redis($conf['host'], $conf['port'], $conf['auth'], $conf['type'], $conf['timeout'], $conf['is_pconnect']);
         });
 
         $di->set('mongo', function () use ($config) {
-            $mongo = new \MongoClient($config['mongodb']['host'], $config['mongodb']['options']);
+            //$mongo = new \MongoClient($config['mongodb']['host'], (array)$config['mongodb']['options']);
+            $mongo = new Mongodb($config['mongodb']['host']);
+            $mongo->selectDb("api_minit");
             return $mongo;
         });
 
-        $di->set('view', function() {
+        $di->set('view', function() use ($config, $di){
             $view = new View();
-            $view->setViewsDir(APP_PATH.'modules/admin/views/');
+
+            $view->setViewsDir(APP_PATH.'/modules/admin/views/');
+
+            //注册模板引擎
+            $view->registerEngines(array(
+                //设置模板后缀名
+                '.phtml' => function ($view, $di) use ($config) {
+                    $volt = new \Phalcon\Mvc\View\Engine\Volt($view, $di);
+                    $volt->setOptions(array(
+                        //模板是否实时编译
+                        'compileAlways' => false,
+                        //模板编译目录
+                        'compiledPath' => ROOT_PATH . '/app/cache/compiled/admin/'
+                    ));
+                    return $volt;
+                },
+            ));
+
             return $view;
         });
 
-        // Registering a dispatcher
         $di->set(
+            "crypt",
+            function () {
+                $crypt = new Crypt();
+                $crypt->setKey('#1dpjp8i$=?.//monit$'); // Use your own key!
+                return $crypt;
+            }
+        );
+
+        // Registering a dispatcher
+       $di->set(
             "dispatcher",
             function () {
                 $eventsManager = new EventsManager();
+                /**/
                 $eventsManager->attach("dispatch:beforeException", function ($event, $dispatcher, $exception) {
                     switch ($exception->getCode()) {
                         case Dispatcher::EXCEPTION_HANDLER_NOT_FOUND:
@@ -88,10 +143,16 @@ class Module implements ModuleDefinitionInterface
                     }
                 });
 
+                // 监听分发器中使用安全插件产生的事件
+                $eventsManager->attach(
+                    "dispatch:beforeExecuteRoute",
+                    new SecurityPlugin()
+                );
+
+
                 $dispatcher = new Dispatcher();
                 $dispatcher->setDefaultNamespace('App\Admin\Controllers\\');
                 $dispatcher->setEventsManager($eventsManager);
-
                 return $dispatcher;
             }
         );

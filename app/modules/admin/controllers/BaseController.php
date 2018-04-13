@@ -8,7 +8,9 @@ use Lcobucci\JWT\ValidationData;
 use Lcobucci\JWT\Parser;
 use Lcobucci\JWT\Signer\Hmac\Sha256;
 use Phalcon\Mvc\Url;
-
+use App\Models\OperationLog;
+use App\Models\Module;
+use App\Components\XhprofClient;
 
 class BaseController extends Controller
 {
@@ -16,33 +18,28 @@ class BaseController extends Controller
     public $uid = 0;
     public $username = null;
     public $role = 0;
-    public $without_login_uri = [
-        '/user/login',
-        '/user/lock',
-        '/user/do_login',
-        '/user/logout'
-    ];
 
     public function onConstruct()
     {
-        //session_start();
         $config = $this->di->get('config');
 
+
+
+        $without_login_uri = (array)$this->di->get('config')->without_login_uri;
         //登录状态验证
-        if(!in_array($this->request->getURI(),$this->without_login_uri)){
+        if(!empty($without_login_uri) && !in_array($this->request->getURI(),$without_login_uri)){
             $auth_stat = self::userAuth();
-            var_dump($auth_stat);exit;
-            if(!$auth_stat)
-                $this->response->redirect('user/login');
+            //$auth_stat = 1;
         }
 
         //频率验证
-        if (!empty($config['req_fre_enable'])) {
+        if (!empty($config['req_fre_enable']) && !empty($this->uid)) {
             $redis = $this->di->get('redis');
             //频率限制
             $req_count = $redis->get('api_monit:req_count_'.$this->uid);
-
             $req_allow_count = $config['req_fre_count'];
+
+
             if($req_count >= $req_allow_count){
                 return self::output(10506, '访问频率过高', [], 400);
             }else{
@@ -55,6 +52,33 @@ class BaseController extends Controller
 
         $this->view->site_url = $config['site_url'];
         $this->view->statics_url = $config['statics_url'];
+
+        $Module = new Module();
+        $module_tree = $Module->getTree();
+        $this->view->module_tree = $module_tree;
+
+        $controller = $action = $mod_tag = $controller_name= '';
+        if (!empty($_SERVER['REQUEST_URI'])) {
+            $uri_parts = explode('?', $_SERVER['REQUEST_URI']);
+            $uri = $uri_parts[0];
+            $uri_arr = explode('/',$uri);
+
+            $controller = !empty($uri_arr[1]) ? $uri_arr[1] : 'index';
+            $action = !empty($uri_arr[2]) ? $uri_arr[2] : 'index';
+            $mod_info = $Module->getModuleInfo($controller);
+
+            if($mod_info){
+                $mod_tag = $mod_info['mod_tag'];
+                $controller_name = $mod_info['controller_name'];
+            }
+        }
+
+        $this->view->controller = $controller;
+        $this->view->action = $action;
+        $this->view->mod_tag = $mod_tag;
+        $this->view->controller_name = $controller_name;
+
+
     }
 
     /**
@@ -63,40 +87,36 @@ class BaseController extends Controller
      */
     protected function userAuth()
     {
+        if(!$this->cookies->has('amtk'))
+            return -1;
 
-        var_dump($_COOKIE['api_monit_tk']);exit;
-        if(empty($_COOKIE['api_monit_tk']))
-            return false;
-
-        $tk = $_COOKIE['api_monit_tk'];
-
+        $tk = $this->cookies->get('amtk')->getValue();
 
         //token解码
         $token = (new Parser())->parse((string) $tk);
-
         //签名验证
         $signer = new Sha256();
-        //var_dump($token->verify($signer, $this->di->get('config')->sign_key));
         if(!$token->verify($signer, $this->di->get('config')->sign_key))
-            return false;
+            return -2;
 
         //nbf 验证
         $not_before = $token->getClaim('nbf');
         if(time() < $not_before)
-            return false;
+            return -3;
 
         //exp TOKEN过期验证
         $expiration = $token->getClaim('exp');
-        //var_dump($expiration);
         if(time() > $expiration)
-            return false;
+            return -3;
 
-        if(!$token->getClaim('uid'))
-            return false;
+        if(!$token->getClaim('uid') || !$token->getClaim('username') || !$token->getClaim('role'))
+            return -4;
 
         $this->uid = $token->getClaim('uid');
         $this->username = $token->getClaim('username');
         $this->role = $token->getClaim('role');
+
+        return 1;
     }
 
 
@@ -114,7 +134,22 @@ class BaseController extends Controller
         if (!empty($config['log_enable'])) {
             self::accessLog($httpStatusCode, $return_data);
         }
+
+        if(!empty($config['xhprof_enable'])){
+            self::pushXhprofStatistics($httpStatusCode);
+        }
         return self::response($httpStatusCode, $return_data);
+    }
+
+    private function pushXhprofStatistics($httpStatusCode)
+    {
+        $uri = $this->request->getURI();;
+        $client_ip = $this->request->getClientAddress();
+        $method = @$_SERVER['REQUEST_METHOD'];
+
+        $xhprofClient = new XhprofClient();
+        $xhprofClient->push($uri,$method,$httpStatusCode,$client_ip);
+
     }
 
     /**
@@ -155,10 +190,19 @@ class BaseController extends Controller
 
         $this->response->setStatusCode($httpStatusCode)
             ->setHeader("Content-Type", $config['content_type'].";charset=".$config['charset'])
+            ->setHeader("Access-Control-Allow-Origin", "*")
             ->setContent($content)
             ->send();
 
         exit(1);
 
+    }
+
+    public function operationLog($message,$ids,$uid = NULL,$username = NULL)
+    {
+        $OperationLog = new OperationLog();
+        $uid = !is_null($uid) ? $uid : $this->uid;
+        $username = !is_null($username) ? $username : $this->username;
+        return $OperationLog->createLog($uid,$username,$message,$ids);
     }
 }
